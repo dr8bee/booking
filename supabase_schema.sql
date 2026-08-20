@@ -2,14 +2,14 @@
 
 create table if not exists registrations (
     id bigint generated always as identity primary key,
-    created_at timestamptz not null default now(),
+    create_date timestamptz not null default now(),
     name text not null,
     phone text not null,
     email text,
     note text,
     amount integer not null,
     order_id text not null unique,
-    status text not null default 'pending',   -- pending / paid / cancelled / confirm_failed
+    status text not null default 'pending',   -- pending / paid / cancelled / confirm_failed / registered
     transaction_id text
 );
 

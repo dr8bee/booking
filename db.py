@@ -47,7 +47,7 @@ def append_registration(
     client = _get_client()
     client.table(TABLE_NAME).insert(
         {
-            "created_at": datetime.datetime.now().isoformat(),
+            "create_date": datetime.datetime.now().isoformat(),
             "name": name,
             "phone": phone,
             "email": email,
@@ -97,7 +97,7 @@ def get_all_registrations() -> list[dict]:
     result = (
         client.table(TABLE_NAME)
         .select("*")
-        .order("created_at", desc=True)
+        .order("create_date", desc=True)
         .execute()
     )
     return result.data
