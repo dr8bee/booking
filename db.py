@@ -28,8 +28,14 @@ def append_registration(
     note: str,
     amount: int,
     order_id: str,
+    status: str = "registered",
 ) -> None:
-    """新增一筆報名紀錄，狀態預設為 pending。"""
+    """
+    新增一筆報名紀錄。
+    目前版本尚未串接付款，狀態預設為 registered（已報名）。
+    之後接上 LINE Pay 時，可以把預設值改回 pending，並在付款流程中呼叫
+    update_status() 轉成 paid / cancelled / confirm_failed。
+    """
     client = _get_client()
     client.table(TABLE_NAME).insert(
         {
@@ -40,7 +46,7 @@ def append_registration(
             "note": note,
             "amount": amount,
             "order_id": order_id,
-            "status": "pending",
+            "status": status,
             "transaction_id": "",
         }
     ).execute()

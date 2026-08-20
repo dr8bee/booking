@@ -1,15 +1,22 @@
-# 活動報名 + LINE Pay 收款系統
+# 活動報名系統（目前版本：純登記，尚未串接付款）
 
-Streamlit + Supabase + LINE Pay 的輕量報名收款工具。無名額限制，純登記＋線上收款，
-另外附一個密碼保護的後台頁面給店家看名單。
+Streamlit + Supabase 的輕量報名工具。無名額限制，純登記，另外附一個密碼保護的
+後台頁面給店家看名單。**LINE Pay 付款功能先不啟用**，`linepay.py` 保留在專案裡，
+之後準備好要收款時，只要把它接回 `app.py` 的送出流程即可，不需要重新設計架構。
 
-## 架構
+## 架構（目前）
+
+```
+顧客填表單 → 寫入 Supabase（狀態 registered）→ 顯示報名成功
+
+店家開啟 /admin → 輸入密碼 → 看報名名單、篩選狀態、匯出 CSV
+```
+
+## 之後要加付款時的架構
 
 ```
 顧客填表單 → 寫入 Supabase（狀態 pending）→ 導向 LINE Pay 付款
     → 付款完成後導回同一頁面 → 呼叫 LINE Pay confirm → 更新 Supabase 為 paid
-
-店家開啟 /admin → 輸入密碼 → 看報名名單、篩選狀態、匯出 CSV
 ```
 
 主程式是 `app.py`（顧客用的報名表單），`pages/admin.py` 是附屬的後台頁面，
@@ -51,20 +58,16 @@ booking_system/                    ← GitHub repo
 > 需要一點時間喚醒。如果報名有淡旺季、中間會停用很久，記得提醒店家第一次開啟可能
 > 會稍微慢一點。
 
-### 2. LINE Pay Online API
-
-先用 `env = "sandbox"` 完整測過流程，確認沒問題再切成 `production`。
-`confirmUrl` / `cancelUrl` 必須是正式部署後的網址，本機 `localhost` 無法讓 LINE Pay 導回。
-
-### 3. 設定 secrets
+### 2. 設定 secrets
 
 複製 `.streamlit/secrets.toml.example` 為 `.streamlit/secrets.toml`（本機測試用），填入：
 
 - `app.base_url`：Streamlit Cloud 部署後給你的網址
-- `app.amount`：報名費金額
-- `linepay.channel_id` / `linepay.channel_secret` / `linepay.env`
+- `app.amount`：目前僅顯示用，還沒有實際收款
 - `supabase.url` / `supabase.service_role_key`
 - `admin.password`：給店家登入 `/admin` 用的密碼，自己取一組即可
+
+`[linepay]` 區塊目前不用填，等之後要加付款功能再啟用。
 
 `.streamlit/secrets.toml` 已被 `.gitignore` 排除，不會被推上 GitHub。
 
@@ -104,7 +107,9 @@ sandbox 環境測試完整付款流程。Supabase 的讀寫本機就可以直接
 
 ## 之後可以擴充的方向
 
+- **加上 LINE Pay 付款**：`linepay.py` 已經寫好 request/confirm 兩支 API 封裝，
+  之後只要在 `app.py` 的送出流程裡呼叫 `client.request_payment(...)`，並比照
+  之前版本加上付款導回確認的邏輯即可（有需要時我可以直接幫你接回去）
 - 多場次/多方案不同金額 → 加下拉選單
 - 名額上限 → 送出前先查 Supabase 算已報名人數，額滿擋掉
-- 退款 → 用 `linepay.py` 加一支 `/v3/payments/{transactionId}/refund`
 - 後台頁面加更多統計圖表（`pages/admin.py` 已有 pandas，可直接加 `st.bar_chart`）
