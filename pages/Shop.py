@@ -140,6 +140,14 @@ def show_checkout(products: list[dict]):
     st.write(f"### 總計：{total} {CURRENCY}")
     st.divider()
 
+    client = get_linepay_client()
+    if client is None:
+        st.info(
+            "🚧 商城線上付款尚未開放，敬請期待。若想選購以上商品，"
+            "請直接私訊或到店洽詢，謝謝！"
+        )
+        return
+
     with st.form("checkout_form"):
         name = st.text_input("姓名 *")
         phone = st.text_input("聯絡電話 *")
@@ -153,11 +161,6 @@ def show_checkout(products: list[dict]):
 
     if not name.strip() or not phone.strip():
         st.error("請填寫姓名與聯絡電話。")
-        return
-
-    client = get_linepay_client()
-    if client is None:
-        st.error("尚未設定 LINE Pay，請聯絡店家管理員。")
         return
 
     order_id = f"SHOP{uuid.uuid4().hex[:12].upper()}"
