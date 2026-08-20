@@ -1,6 +1,3 @@
 streamlit>=1.32
-supabase>=2.7
-httpx>=0.27
-postgrest>=0.16
 requests>=2.31
 pandas>=2.0
