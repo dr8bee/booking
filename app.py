@@ -24,7 +24,7 @@ def format_event_time(iso_str: str | None) -> str:
 
 
 def registration_form():
-    st.title("📝 活動報名")
+    st.title("📝 八博士農場")
 
     with st.spinner("載入活動列表中..."):
         try:
