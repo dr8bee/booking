@@ -6,12 +6,16 @@ Supabase 讀寫封裝。
 """
 import datetime
 import json
+import uuid
 
 import requests
 import streamlit as st
 
 REGISTRATIONS_TABLE = "registrations"
 EVENTS_TABLE = "events"
+PRODUCTS_TABLE = "products"
+SHOP_ORDERS_TABLE = "shop_orders"
+STORAGE_BUCKET = "product-images"
 
 
 def _headers() -> dict:
@@ -127,6 +131,17 @@ def get_all_registrations() -> list[dict]:
     return resp.json()
 
 
+def delete_registration(order_id: str) -> None:
+    """依訂單編號刪除一筆報名紀錄，用於後台的刪除功能。"""
+    resp = requests.delete(
+        _table_url(REGISTRATIONS_TABLE),
+        headers=_headers(),
+        params={"order_id": f"eq.{order_id}"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "刪除報名紀錄")
+
+
 # ---------------------------------------------------------------------------
 # 活動 events
 # ---------------------------------------------------------------------------
@@ -230,4 +245,208 @@ def get_all_events() -> list[dict]:
         timeout=20,
     )
     _raise_if_error(resp, "查詢活動列表")
+    return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# 商品圖片上傳 (Supabase Storage)
+# ---------------------------------------------------------------------------
+
+
+def upload_product_image(file_bytes: bytes, filename: str, content_type: str) -> str:
+    """
+    上傳商品圖片到 Supabase Storage 的 product-images bucket（需先在 Supabase
+    建立這個 public bucket，見 supabase_schema.sql），回傳可公開瀏覽的圖片網址。
+    """
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
+    path = f"{uuid.uuid4().hex}.{ext}"
+    base = st.secrets["supabase"]["url"].rstrip("/")
+    key = st.secrets["supabase"]["service_role_key"]
+    upload_url = f"{base}/storage/v1/object/{STORAGE_BUCKET}/{path}"
+    headers = {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": content_type or "application/octet-stream",
+    }
+    resp = requests.post(upload_url, headers=headers, data=file_bytes, timeout=30)
+    if resp.status_code >= 300:
+        raise RuntimeError(f"Supabase 圖片上傳失敗（{resp.status_code}）：{resp.text}")
+    return f"{base}/storage/v1/object/public/{STORAGE_BUCKET}/{path}"
+
+
+# ---------------------------------------------------------------------------
+# 商品 products
+# ---------------------------------------------------------------------------
+
+
+def create_product(
+    name: str,
+    description: str,
+    price: int,
+    sale_price: int | None,
+    promo_text: str,
+    image_url: str,
+) -> dict:
+    payload = {
+        "name": name,
+        "description": description,
+        "price": price,
+        "sale_price": sale_price,
+        "promo_text": promo_text,
+        "image_url": image_url,
+        "is_active": True,
+    }
+    resp = requests.post(
+        _table_url(PRODUCTS_TABLE),
+        headers=_headers(),
+        data=_json_dumps(payload),
+        timeout=20,
+    )
+    _raise_if_error(resp, "新增商品")
+    data = resp.json()
+    return data[0] if data else {}
+
+
+def update_product(
+    product_id: int,
+    name: str,
+    description: str,
+    price: int,
+    sale_price: int | None,
+    promo_text: str,
+    image_url: str | None = None,
+) -> None:
+    payload = {
+        "name": name,
+        "description": description,
+        "price": price,
+        "sale_price": sale_price,
+        "promo_text": promo_text,
+    }
+    if image_url:
+        payload["image_url"] = image_url
+    resp = requests.patch(
+        _table_url(PRODUCTS_TABLE),
+        headers=_headers(),
+        params={"id": f"eq.{product_id}"},
+        data=_json_dumps(payload),
+        timeout=20,
+    )
+    _raise_if_error(resp, "更新商品")
+
+
+def set_product_active(product_id: int, is_active: bool) -> None:
+    resp = requests.patch(
+        _table_url(PRODUCTS_TABLE),
+        headers=_headers(),
+        params={"id": f"eq.{product_id}"},
+        data=_json_dumps({"is_active": is_active}),
+        timeout=20,
+    )
+    _raise_if_error(resp, "更新商品狀態")
+
+
+def delete_product(product_id: int) -> None:
+    resp = requests.delete(
+        _table_url(PRODUCTS_TABLE),
+        headers=_headers(),
+        params={"id": f"eq.{product_id}"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "刪除商品")
+
+
+def get_active_products() -> list[dict]:
+    """取得目前上架中的商品，給顧客商城頁面使用。"""
+    resp = requests.get(
+        _table_url(PRODUCTS_TABLE),
+        headers=_headers(),
+        params={"select": "*", "is_active": "eq.true", "order": "create_date.desc"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "查詢商品")
+    return resp.json()
+
+
+def get_all_products() -> list[dict]:
+    """取得所有商品（不論上架或下架），給後台管理頁面使用。"""
+    resp = requests.get(
+        _table_url(PRODUCTS_TABLE),
+        headers=_headers(),
+        params={"select": "*", "order": "create_date.desc"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "查詢商品列表")
+    return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# 商城訂單 shop_orders
+# ---------------------------------------------------------------------------
+
+
+def create_shop_order(
+    order_id: str,
+    name: str,
+    phone: str,
+    email: str,
+    items: list[dict],
+    total_amount: int,
+    status: str = "pending",
+) -> None:
+    payload = {
+        "create_date": datetime.datetime.now().isoformat(),
+        "order_id": order_id,
+        "name": name,
+        "phone": phone,
+        "email": email,
+        "items": items,
+        "total_amount": total_amount,
+        "status": status,
+        "transaction_id": "",
+    }
+    resp = requests.post(
+        _table_url(SHOP_ORDERS_TABLE),
+        headers=_headers(),
+        data=_json_dumps(payload),
+        timeout=20,
+    )
+    _raise_if_error(resp, "建立商城訂單")
+
+
+def update_shop_order_status(order_id: str, status: str, transaction_id: str = "") -> None:
+    payload = {"status": status}
+    if transaction_id:
+        payload["transaction_id"] = transaction_id
+    resp = requests.patch(
+        _table_url(SHOP_ORDERS_TABLE),
+        headers=_headers(),
+        params={"order_id": f"eq.{order_id}"},
+        data=_json_dumps(payload),
+        timeout=20,
+    )
+    _raise_if_error(resp, "更新商城訂單狀態")
+
+
+def get_shop_order(order_id: str) -> dict | None:
+    resp = requests.get(
+        _table_url(SHOP_ORDERS_TABLE),
+        headers=_headers(),
+        params={"order_id": f"eq.{order_id}", "select": "*"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "查詢商城訂單")
+    data = resp.json()
+    return data[0] if data else None
+
+
+def get_all_shop_orders() -> list[dict]:
+    """取得所有商城訂單，依建立時間新到舊排序，給後台頁面使用。"""
+    resp = requests.get(
+        _table_url(SHOP_ORDERS_TABLE),
+        headers=_headers(),
+        params={"select": "*", "order": "create_date.desc"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "查詢商城訂單列表")
     return resp.json()
