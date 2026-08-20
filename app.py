@@ -10,7 +10,7 @@ import streamlit as st
 import db
 from linepay import LinePayClient, LinePayError
 
-st.set_page_config(page_title="活動報名", page_icon="📝", layout="centered")
+st.set_page_config(page_title="8博士農場 活動報名", page_icon="📝", layout="centered")
 
 # ---------- 讀取設定 ----------
 APP_CFG = st.secrets["app"]
