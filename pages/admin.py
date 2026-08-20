@@ -1,7 +1,9 @@
 """
-報名名單後台頁面（給店家用）。
+後台頁面（給店家用）：報名名單 + 活動管理。
 放在 pages/ 資料夾下，Streamlit 會自動加到側邊欄選單，網址為 /admin。
 """
+import datetime
+
 import pandas as pd
 import streamlit as st
 
@@ -10,6 +12,7 @@ import db
 st.set_page_config(page_title="報名名單後台", page_icon="📋", layout="wide")
 
 STATUS_LABEL = {
+    "registered": "已報名",
     "pending": "待付款",
     "paid": "已付款 ✅",
     "cancelled": "已取消",
@@ -34,11 +37,18 @@ def check_password() -> bool:
     return False
 
 
-def show_dashboard():
-    st.title("📋 報名名單")
+# ---------------------------------------------------------------------------
+# 報名名單頁籤
+# ---------------------------------------------------------------------------
 
+
+def show_registrations_tab():
     with st.spinner("讀取報名資料中..."):
-        records = db.get_all_registrations()
+        try:
+            records = db.get_all_registrations()
+        except Exception as e:
+            st.error(f"讀取報名資料失敗：{e}")
+            return
 
     if not records:
         st.info("目前還沒有任何報名紀錄。")
@@ -46,9 +56,9 @@ def show_dashboard():
 
     df = pd.DataFrame(records)
 
-    # 整理欄位順序與中文欄名，方便店家閱讀
     column_map = {
-        "created_at": "建立時間",
+        "create_date": "建立時間",
+        "event_name": "活動",
         "name": "姓名",
         "phone": "電話",
         "email": "Email",
@@ -62,7 +72,6 @@ def show_dashboard():
     df = df[ordered_cols].rename(columns=column_map)
     df["狀態"] = df["狀態"].map(lambda s: STATUS_LABEL.get(s, s))
 
-    # 統計摘要
     col1, col2, col3 = st.columns(3)
     col1.metric("總報名數", len(df))
     paid_count = (df["狀態"] == STATUS_LABEL["paid"]).sum()
@@ -72,13 +81,19 @@ def show_dashboard():
 
     st.divider()
 
-    # 篩選狀態
-    status_options = ["全部"] + sorted(df["狀態"].unique().tolist())
-    selected_status = st.selectbox("篩選狀態", status_options)
+    filter_col1, filter_col2 = st.columns(2)
+    with filter_col1:
+        status_options = ["全部"] + sorted(df["狀態"].unique().tolist())
+        selected_status = st.selectbox("篩選狀態", status_options)
+    with filter_col2:
+        event_options = ["全部"] + sorted(df["活動"].dropna().unique().tolist())
+        selected_event = st.selectbox("篩選活動", event_options)
+
+    df_display = df
     if selected_status != "全部":
-        df_display = df[df["狀態"] == selected_status]
-    else:
-        df_display = df
+        df_display = df_display[df_display["狀態"] == selected_status]
+    if selected_event != "全部":
+        df_display = df_display[df_display["活動"] == selected_event]
 
     st.dataframe(df_display, use_container_width=True, hide_index=True)
 
@@ -90,6 +105,124 @@ def show_dashboard():
         mime="text/csv",
     )
 
+
+# ---------------------------------------------------------------------------
+# 活動管理頁籤
+# ---------------------------------------------------------------------------
+
+
+def show_event_form():
+    st.subheader("➕ 新增活動")
+    with st.form("new_event_form", clear_on_submit=True):
+        name = st.text_input("活動名稱 *")
+        location = st.text_input("地點")
+        col1, col2 = st.columns(2)
+        with col1:
+            event_date = st.date_input("活動日期", value=None)
+        with col2:
+            event_clock = st.time_input("活動時間", value=None)
+        description = st.text_area("活動內容說明", height=100)
+        amount = st.number_input("報名費金額", min_value=0, step=50, value=0)
+        submitted = st.form_submit_button("新增活動", use_container_width=True)
+
+    if not submitted:
+        return
+
+    if not name.strip():
+        st.error("請填寫活動名稱。")
+        return
+
+    event_time_iso = ""
+    if event_date and event_clock:
+        event_time_iso = datetime.datetime.combine(event_date, event_clock).isoformat()
+    elif event_date:
+        event_time_iso = datetime.datetime.combine(
+            event_date, datetime.time(0, 0)
+        ).isoformat()
+
+    try:
+        db.create_event(
+            name=name.strip(),
+            location=location.strip(),
+            event_time=event_time_iso,
+            description=description.strip(),
+            amount=int(amount),
+        )
+    except Exception as e:
+        st.error(f"新增活動失敗：{e}")
+        return
+
+    st.success(f"活動「{name}」已新增！")
+    st.rerun()
+
+
+def format_event_time(iso_str: str | None) -> str:
+    if not iso_str:
+        return "時間未定"
+    try:
+        dt = datetime.datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        return dt.strftime("%Y/%m/%d (%a) %H:%M")
+    except ValueError:
+        return iso_str
+
+
+def show_event_list():
+    st.subheader("📅 活動列表")
+    try:
+        events = db.get_all_events()
+    except Exception as e:
+        st.error(f"讀取活動列表失敗：{e}")
+        return
+
+    if not events:
+        st.info("目前還沒有任何活動，請先在上方新增。")
+        return
+
+    for e in events:
+        with st.container(border=True):
+            col_info, col_action = st.columns([4, 1])
+            with col_info:
+                status_tag = "🟢 開放報名中" if e.get("is_active") else "🔴 已關閉"
+                st.markdown(f"**{e['name']}**　{status_tag}")
+                st.caption(
+                    f"📍 {e.get('location') or '未提供'}　"
+                    f"🕒 {format_event_time(e.get('event_time'))}　"
+                    f"💰 {e.get('amount', 0)} {e.get('currency', 'TWD')}"
+                )
+                if e.get("description"):
+                    st.caption(f"📋 {e['description']}")
+            with col_action:
+                if e.get("is_active"):
+                    if st.button("關閉報名", key=f"close_{e['id']}", use_container_width=True):
+                        db.set_event_active(e["id"], False)
+                        st.rerun()
+                else:
+                    if st.button("重新開放", key=f"open_{e['id']}", use_container_width=True):
+                        db.set_event_active(e["id"], True)
+                        st.rerun()
+
+
+def show_events_tab():
+    show_event_form()
+    st.divider()
+    show_event_list()
+
+
+# ---------------------------------------------------------------------------
+# 主流程
+# ---------------------------------------------------------------------------
+
+
+def show_dashboard():
+    st.title("📋 報名系統後台")
+
+    tab_registrations, tab_events = st.tabs(["報名名單", "活動管理"])
+    with tab_registrations:
+        show_registrations_tab()
+    with tab_events:
+        show_events_tab()
+
+    st.divider()
     if st.button("登出"):
         st.session_state["admin_authed"] = False
         st.rerun()
