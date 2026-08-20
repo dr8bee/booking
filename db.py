@@ -3,6 +3,14 @@ Supabase 讀寫封裝。
 資料表結構請見 supabase_schema.sql。
 """
 import datetime
+import locale
+
+# 部分雲端環境預設語系編碼較保守，遇到中文字容易觸發編碼錯誤，
+# 這裡強制指定 UTF-8，降低底層套件處理中文時出錯的機會。
+try:
+    locale.setlocale(locale.LC_ALL, "C.UTF-8")
+except locale.Error:
+    pass
 
 import streamlit as st
 from supabase import create_client, Client
