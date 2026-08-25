@@ -9,8 +9,10 @@ import uuid
 import streamlit as st
 
 import db
+from style import inject_theme, hero, BRAND_NAME
 
-st.set_page_config(page_title="活動報名", page_icon="📝", layout="centered")
+st.set_page_config(page_title=f"活動報名｜{BRAND_NAME}", page_icon="🐝", layout="centered")
+inject_theme()
 
 
 def format_event_time(iso_str: str | None) -> str:
@@ -24,7 +26,7 @@ def format_event_time(iso_str: str | None) -> str:
 
 
 def registration_form():
-    st.title("📝 八博士農場")
+    hero("蜂場活動報名", "跟著蜂農走進蜂場，看蜜蜂如何釀出一年一收的甜")
 
     with st.spinner("載入活動列表中..."):
         try:
@@ -34,7 +36,7 @@ def registration_form():
             return
 
     if not events:
-        st.info("目前尚無開放報名的活動，請稍後再來看看。")
+        st.info("目前尚無開放報名的蜂場活動，關注我們，下一梯採蜜體驗開放時第一時間通知您。")
         return
 
     def label_for(e: dict) -> str:
@@ -86,13 +88,13 @@ def registration_form():
             st.error(f"報名送出失敗，請稍後再試或聯絡工作人員。\n\n錯誤訊息：{e}")
             return
 
-    st.success("報名成功！🎉")
+    st.success("報名成功！🐝🎉")
     st.write(f"活動：{selected_event['name']}")
     st.write(f"訂單編號：`{order_id}`")
     if amount > 0:
-        st.caption("工作人員將會收到您的報名紀錄，如需付款會另行通知。")
+        st.caption("蜂農將會收到您的報名紀錄，如需付款會另行通知，期待在蜂場見到您。")
     else:
-        st.caption("工作人員將會收到您的報名紀錄。")
+        st.caption("蜂農將會收到您的報名紀錄，期待在蜂場見到您。")
 
 
 if __name__ == "__main__":
