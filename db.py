@@ -15,6 +15,8 @@ REGISTRATIONS_TABLE = "registrations"
 EVENTS_TABLE = "events"
 PRODUCTS_TABLE = "products"
 SHOP_ORDERS_TABLE = "shop_orders"
+PROMOTIONS_TABLE = "promotions"
+PRODUCT_PROMOTIONS_TABLE = "product_promotions"
 STORAGE_BUCKET = "product-images"
 
 
@@ -33,7 +35,7 @@ def _table_url(table_name: str) -> str:
     return f"{base}/rest/v1/{table_name}"
 
 
-def _json_dumps(payload: dict) -> bytes:
+def _json_dumps(payload: dict | list) -> bytes:
     """明確用 UTF-8 編碼成 bytes 再送出，避免任何隱含編碼猜測造成問題。"""
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
@@ -283,16 +285,12 @@ def create_product(
     name: str,
     description: str,
     price: int,
-    sale_price: int | None,
-    promo_text: str,
     image_url: str,
 ) -> dict:
     payload = {
         "name": name,
         "description": description,
         "price": price,
-        "sale_price": sale_price,
-        "promo_text": promo_text,
         "image_url": image_url,
         "is_active": True,
     }
@@ -312,16 +310,12 @@ def update_product(
     name: str,
     description: str,
     price: int,
-    sale_price: int | None,
-    promo_text: str,
     image_url: str | None = None,
 ) -> None:
     payload = {
         "name": name,
         "description": description,
         "price": price,
-        "sale_price": sale_price,
-        "promo_text": promo_text,
     }
     if image_url:
         payload["image_url"] = image_url
@@ -450,3 +444,158 @@ def get_all_shop_orders() -> list[dict]:
     )
     _raise_if_error(resp, "查詢商城訂單列表")
     return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# 促銷規則 promotions / product_promotions
+# ---------------------------------------------------------------------------
+
+
+def create_promotion(
+    name: str, rule_type: str, params: dict, display_text: str
+) -> dict:
+    payload = {
+        "name": name,
+        "rule_type": rule_type,
+        "params": params,
+        "display_text": display_text,
+        "is_active": True,
+    }
+    resp = requests.post(
+        _table_url(PROMOTIONS_TABLE),
+        headers=_headers(),
+        data=_json_dumps(payload),
+        timeout=20,
+    )
+    _raise_if_error(resp, "新增促銷規則")
+    data = resp.json()
+    return data[0] if data else {}
+
+
+def update_promotion(
+    promotion_id: int, name: str, rule_type: str, params: dict, display_text: str
+) -> None:
+    payload = {
+        "name": name,
+        "rule_type": rule_type,
+        "params": params,
+        "display_text": display_text,
+    }
+    resp = requests.patch(
+        _table_url(PROMOTIONS_TABLE),
+        headers=_headers(),
+        params={"id": f"eq.{promotion_id}"},
+        data=_json_dumps(payload),
+        timeout=20,
+    )
+    _raise_if_error(resp, "更新促銷規則")
+
+
+def set_promotion_active(promotion_id: int, is_active: bool) -> None:
+    resp = requests.patch(
+        _table_url(PROMOTIONS_TABLE),
+        headers=_headers(),
+        params={"id": f"eq.{promotion_id}"},
+        data=_json_dumps({"is_active": is_active}),
+        timeout=20,
+    )
+    _raise_if_error(resp, "更新促銷規則狀態")
+
+
+def delete_promotion(promotion_id: int) -> None:
+    """刪除促銷規則，關聯的商品對應（product_promotions）會一併自動刪除。"""
+    resp = requests.delete(
+        _table_url(PROMOTIONS_TABLE),
+        headers=_headers(),
+        params={"id": f"eq.{promotion_id}"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "刪除促銷規則")
+
+
+def get_all_promotions() -> list[dict]:
+    resp = requests.get(
+        _table_url(PROMOTIONS_TABLE),
+        headers=_headers(),
+        params={"select": "*", "order": "create_date.desc"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "查詢促銷規則列表")
+    return resp.json()
+
+
+def get_active_promotions() -> list[dict]:
+    resp = requests.get(
+        _table_url(PROMOTIONS_TABLE),
+        headers=_headers(),
+        params={"select": "*", "is_active": "eq.true"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "查詢促銷規則")
+    return resp.json()
+
+
+def get_promotion_products(promotion_id: int) -> list[int]:
+    """取得某個促銷規則目前套用在哪些商品上（回傳商品 id 列表）。"""
+    resp = requests.get(
+        _table_url(PRODUCT_PROMOTIONS_TABLE),
+        headers=_headers(),
+        params={"promotion_id": f"eq.{promotion_id}", "select": "product_id"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "查詢促銷適用商品")
+    return [row["product_id"] for row in resp.json()]
+
+
+def set_promotion_products(promotion_id: int, product_ids: list[int]) -> None:
+    """
+    設定某個促銷規則要套用在哪些商品上（整批覆蓋：先清空舊的對應，再寫入新的）。
+    """
+    resp = requests.delete(
+        _table_url(PRODUCT_PROMOTIONS_TABLE),
+        headers=_headers(),
+        params={"promotion_id": f"eq.{promotion_id}"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "更新促銷適用商品")
+
+    if not product_ids:
+        return
+
+    payload = [
+        {"promotion_id": promotion_id, "product_id": pid} for pid in product_ids
+    ]
+    resp = requests.post(
+        _table_url(PRODUCT_PROMOTIONS_TABLE),
+        headers=_headers(),
+        data=_json_dumps(payload),
+        timeout=20,
+    )
+    _raise_if_error(resp, "更新促銷適用商品")
+
+
+def get_active_product_promotion_map() -> dict[int, list[dict]]:
+    """
+    回傳 {商品id: [促銷規則字典, ...]}，只包含目前啟用中的規則。
+    給顧客商城頁面計算購物車價格使用。
+    """
+    active_promos = get_active_promotions()
+    if not active_promos:
+        return {}
+
+    promo_by_id = {p["id"]: p for p in active_promos}
+
+    resp = requests.get(
+        _table_url(PRODUCT_PROMOTIONS_TABLE),
+        headers=_headers(),
+        params={"select": "product_id,promotion_id"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "查詢促銷適用商品")
+
+    mapping: dict[int, list[dict]] = {}
+    for row in resp.json():
+        promo = promo_by_id.get(row["promotion_id"])
+        if promo:
+            mapping.setdefault(row["product_id"], []).append(promo)
+    return mapping
