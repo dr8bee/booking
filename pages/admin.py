@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 import db
+import promo_engine
 from style import inject_theme, BRAND_NAME
 
 st.set_page_config(page_title=f"後台｜{BRAND_NAME}", page_icon="🐝", layout="wide")
@@ -245,14 +246,7 @@ def show_product_form():
     with st.form("new_product_form", clear_on_submit=True):
         name = st.text_input("商品名稱 *")
         description = st.text_area("商品介紹", height=100)
-        col1, col2 = st.columns(2)
-        with col1:
-            price = st.number_input("原價 *", min_value=0, step=10, value=0)
-        with col2:
-            sale_price = st.number_input(
-                "特價（0 表示無特價）", min_value=0, step=10, value=0
-            )
-        promo_text = st.text_input("促銷方案說明（例如：買二送一、限時優惠）")
+        price = st.number_input("價格 *", min_value=0, step=10, value=0)
         uploaded_file = st.file_uploader(
             "商品圖片", type=["png", "jpg", "jpeg", "webp"]
         )
@@ -265,7 +259,7 @@ def show_product_form():
         st.error("請填寫商品名稱。")
         return
     if price <= 0:
-        st.error("請填寫原價。")
+        st.error("請填寫價格。")
         return
 
     image_url = ""
@@ -286,15 +280,13 @@ def show_product_form():
             name=name.strip(),
             description=description.strip(),
             price=int(price),
-            sale_price=int(sale_price) if sale_price > 0 else None,
-            promo_text=promo_text.strip(),
             image_url=image_url,
         )
     except Exception as e:
         st.error(f"新增商品失敗：{e}")
         return
 
-    st.success(f"商品「{name}」已上架！")
+    st.success(f"商品「{name}」已上架！之後可以到「促銷管理」頁籤幫它設定優惠。")
     st.rerun()
 
 
@@ -319,12 +311,7 @@ def show_product_list():
             with col_info:
                 status_tag = "🟢 上架中" if p.get("is_active") else "🔴 已下架"
                 st.markdown(f"**{p['name']}**　{status_tag}")
-                if p.get("sale_price"):
-                    st.caption(f"~~{p['price']}~~ → {p['sale_price']} 元")
-                else:
-                    st.caption(f"{p['price']} 元")
-                if p.get("promo_text"):
-                    st.caption(f"🎉 {p['promo_text']}")
+                st.caption(f"{p['price']} 元")
                 if p.get("description"):
                     st.caption(p["description"])
             with col_action:
@@ -353,6 +340,195 @@ def show_products_tab():
     show_product_form()
     st.divider()
     show_product_list()
+
+
+# ---------------------------------------------------------------------------
+# 促銷管理頁籤
+# ---------------------------------------------------------------------------
+
+
+def show_promotion_form(products: list[dict]):
+    st.subheader("➕ 新增促銷規則")
+
+    if not products:
+        st.info("請先到「商品管理」上架商品，才能設定促銷規則。")
+        return
+
+    rule_label_to_key = {v: k for k, v in promo_engine.RULE_TYPES.items()}
+    rule_label = st.selectbox(
+        "規則類型", list(promo_engine.RULE_TYPES.values()), key="new_promo_rule_type"
+    )
+    rule_type = rule_label_to_key[rule_label]
+
+    with st.form("new_promo_form", clear_on_submit=True):
+        name = st.text_input("規則名稱 *（給自己辨識用，例如：夏季買二送一）")
+
+        params: dict = {}
+        if rule_type == "percent_off":
+            col1, col2 = st.columns(2)
+            with col1:
+                percent = st.number_input(
+                    "折扣百分比（例如填 15 代表打 85 折）",
+                    min_value=1,
+                    max_value=99,
+                    value=10,
+                )
+            with col2:
+                min_qty = st.number_input("至少購買幾件才套用", min_value=1, value=1)
+            params = {"percent": int(percent), "min_qty": int(min_qty)}
+        elif rule_type == "amount_off":
+            col1, col2 = st.columns(2)
+            with col1:
+                amount = st.number_input(
+                    "折抵金額", min_value=1, value=50, step=10
+                )
+            with col2:
+                min_qty = st.number_input("至少購買幾件才套用", min_value=1, value=1)
+            params = {"amount": int(amount), "min_qty": int(min_qty)}
+        elif rule_type == "buy_x_get_y":
+            col1, col2 = st.columns(2)
+            with col1:
+                buy_qty = st.number_input("購買幾件", min_value=1, value=2)
+            with col2:
+                get_qty = st.number_input("加送幾件", min_value=1, value=1)
+            params = {"buy_qty": int(buy_qty), "get_qty": int(get_qty)}
+        elif rule_type == "bundle_price":
+            col1, col2 = st.columns(2)
+            with col1:
+                bundle_qty = st.number_input("每幾件", min_value=1, value=3)
+            with col2:
+                bundle_price = st.number_input(
+                    "優惠總價", min_value=1, value=250, step=10
+                )
+            params = {"bundle_qty": int(bundle_qty), "bundle_price": int(bundle_price)}
+
+        display_text = st.text_input(
+            "顯示文字（留空則自動產生，例如「買2送1」「85折」）"
+        )
+
+        product_options = {p["name"]: p["id"] for p in products}
+        selected_names = st.multiselect("套用到哪些商品 *", list(product_options.keys()))
+
+        submitted = st.form_submit_button("新增促銷規則", use_container_width=True)
+
+    if not submitted:
+        return
+
+    if not name.strip():
+        st.error("請填寫規則名稱。")
+        return
+    if not selected_names:
+        st.error("請至少選擇一項要套用的商品。")
+        return
+
+    try:
+        promo = db.create_promotion(
+            name=name.strip(),
+            rule_type=rule_type,
+            params=params,
+            display_text=display_text.strip(),
+        )
+        product_ids = [product_options[n] for n in selected_names]
+        db.set_promotion_products(promo["id"], product_ids)
+    except Exception as e:
+        st.error(f"新增促銷規則失敗：{e}")
+        return
+
+    preview = promo_engine.display_text_for(rule_type, params, display_text.strip())
+    st.success(f"促銷規則「{name}」已建立！套用效果：{preview}")
+    st.rerun()
+
+
+def show_promotion_list(products: list[dict]):
+    st.subheader("📋 促銷規則列表")
+    try:
+        promotions = db.get_all_promotions()
+    except Exception as e:
+        st.error(f"讀取促銷規則失敗：{e}")
+        return
+
+    if not promotions:
+        st.info("目前還沒有任何促銷規則，請先在上方新增。")
+        return
+
+    product_options = {p["name"]: p["id"] for p in products}
+    product_id_to_name = {p["id"]: p["name"] for p in products}
+
+    for promo in promotions:
+        try:
+            applied_ids = db.get_promotion_products(promo["id"])
+        except Exception as e:
+            st.error(f"讀取「{promo['name']}」適用商品失敗：{e}")
+            applied_ids = []
+        applied_names = [
+            product_id_to_name.get(pid, f"（商品 #{pid}）") for pid in applied_ids
+        ]
+
+        text = promo.get("display_text") or promo_engine.display_text_for(
+            promo["rule_type"], promo.get("params") or {}
+        )
+        status_tag = "🟢 啟用中" if promo.get("is_active") else "🔴 已停用"
+
+        with st.container(border=True):
+            st.markdown(f"**{promo['name']}**　{status_tag}")
+            st.caption(
+                f"🎉 {text}　｜　套用商品："
+                + ("、".join(applied_names) if applied_names else "（尚未指定商品）")
+            )
+
+            col1, col2, col3 = st.columns([2, 1, 1])
+            with col1:
+                new_selection = st.multiselect(
+                    "調整套用商品",
+                    list(product_options.keys()),
+                    default=applied_names,
+                    key=f"promo_products_{promo['id']}",
+                )
+                if st.button("儲存適用商品", key=f"save_promo_products_{promo['id']}"):
+                    new_ids = [product_options[n] for n in new_selection]
+                    try:
+                        db.set_promotion_products(promo["id"], new_ids)
+                    except Exception as e:
+                        st.error(f"更新失敗：{e}")
+                    else:
+                        st.success("已更新。")
+                        st.rerun()
+            with col2:
+                if promo.get("is_active"):
+                    if st.button(
+                        "停用",
+                        key=f"deactivate_promo_{promo['id']}",
+                        use_container_width=True,
+                    ):
+                        db.set_promotion_active(promo["id"], False)
+                        st.rerun()
+                else:
+                    if st.button(
+                        "啟用",
+                        key=f"activate_promo_{promo['id']}",
+                        use_container_width=True,
+                    ):
+                        db.set_promotion_active(promo["id"], True)
+                        st.rerun()
+            with col3:
+                if st.button(
+                    "🗑️ 刪除",
+                    key=f"delete_promo_{promo['id']}",
+                    use_container_width=True,
+                ):
+                    db.delete_promotion(promo["id"])
+                    st.rerun()
+
+
+def show_promotions_tab():
+    try:
+        products = db.get_all_products()
+    except Exception as e:
+        st.error(f"讀取商品列表失敗：{e}")
+        return
+    show_promotion_form(products)
+    st.divider()
+    show_promotion_list(products)
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +579,11 @@ def show_shop_orders_tab():
             f"{o['order_id']}｜{o['name']}｜{o['total_amount']} 元｜{status_label}"
         ):
             for item in o.get("items", []):
-                st.write(f"- {item['name']} x{item['qty']}　{item['price']} 元/件")
+                line = f"- {item['name']} x{item['qty']}"
+                if item.get("promo_name"):
+                    line += f"　🎉 {item['promo_name']}"
+                line += f"　小計 {item.get('line_total', item.get('price', 0) * item.get('qty', 0))} 元"
+                st.write(line)
 
     csv = df_display.to_csv(index=False).encode("utf-8-sig")
     st.download_button(
@@ -422,8 +602,8 @@ def show_shop_orders_tab():
 def show_dashboard():
     st.title(f"🐝 {BRAND_NAME}後台")
 
-    tab_registrations, tab_events, tab_shop_orders, tab_products = st.tabs(
-        ["活動報名名單", "活動管理", "商城訂單", "商品管理"]
+    tab_registrations, tab_events, tab_shop_orders, tab_products, tab_promotions = st.tabs(
+        ["活動報名名單", "活動管理", "商城訂單", "商品管理", "促銷管理"]
     )
     with tab_registrations:
         show_registrations_tab()
@@ -433,6 +613,8 @@ def show_dashboard():
         show_shop_orders_tab()
     with tab_products:
         show_products_tab()
+    with tab_promotions:
+        show_promotions_tab()
 
     st.divider()
     if st.button("登出"):
