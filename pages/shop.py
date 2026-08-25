@@ -8,8 +8,10 @@ import streamlit as st
 
 import db
 from linepay import LinePayClient, LinePayError
+from style import inject_theme, hero, BRAND_NAME
 
-st.set_page_config(page_title="商城", page_icon="🛍️", layout="wide")
+st.set_page_config(page_title=f"蜂蜜嚴選｜{BRAND_NAME}", page_icon="🍯", layout="wide")
+inject_theme()
 
 APP_CFG = st.secrets["app"]
 LINEPAY_CFG = st.secrets.get("linepay")
@@ -39,10 +41,10 @@ def effective_price(p: dict) -> int:
 
 
 def show_catalog(products: list[dict]):
-    st.title("🛍️ 商品目錄")
+    hero("蜂蜜嚴選", "一年一收．自家蜂場現採現裝．純淨不加糖")
 
     if not products:
-        st.info("目前尚無上架商品，請稍後再來看看。")
+        st.info("目前尚無上架商品，蜂蜜正在熟成中，敬請期待。")
         return
 
     cols = st.columns(3)
@@ -111,7 +113,7 @@ def show_cart_sidebar(products: list[dict]):
 
 
 def show_checkout(products: list[dict]):
-    st.title("💳 結帳")
+    hero("結帳", "確認訂購內容，蜂農會盡快為您裝罐出貨")
     product_map = {p["id"]: p for p in products}
 
     if not st.session_state.cart:
@@ -243,10 +245,10 @@ def handle_payment_confirm(order_id: str, transaction_id: str):
     st.session_state.cart = {}
     st.session_state.show_checkout = False
 
-    st.success("付款完成，訂單成立！🎉")
+    st.success("付款完成，訂單成立！🐝🍯")
     st.write(f"訂單編號：`{order_id}`")
     st.write(f"金額：{order['total_amount']} {CURRENCY}")
-    st.caption("此頁面可直接關閉，工作人員將會收到您的訂單。")
+    st.caption("此頁面可直接關閉，蜂農將會收到您的訂單，盡快為您裝罐出貨。")
 
 
 def handle_payment_cancelled(order_id: str):
