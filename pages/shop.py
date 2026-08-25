@@ -113,7 +113,7 @@ def show_cart_sidebar(products: list[dict]):
 
 
 def show_checkout(products: list[dict]):
-    hero("結帳", "確認訂購內容，蜂農會盡快為您裝罐出貨")
+    hero("結帳", "確認訂購內容，8博士會盡快為您裝罐出貨")
     product_map = {p["id"]: p for p in products}
 
     if not st.session_state.cart:
