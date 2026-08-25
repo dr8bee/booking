@@ -8,8 +8,10 @@ import pandas as pd
 import streamlit as st
 
 import db
+from style import inject_theme, BRAND_NAME
 
-st.set_page_config(page_title="報名名單後台", page_icon="📋", layout="wide")
+st.set_page_config(page_title=f"後台｜{BRAND_NAME}", page_icon="🐝", layout="wide")
+inject_theme()
 
 STATUS_LABEL = {
     "registered": "已報名",
@@ -418,7 +420,7 @@ def show_shop_orders_tab():
 
 
 def show_dashboard():
-    st.title("📋 報名系統後台")
+    st.title(f"🐝 {BRAND_NAME}後台")
 
     tab_registrations, tab_events, tab_shop_orders, tab_products = st.tabs(
         ["活動報名名單", "活動管理", "商城訂單", "商品管理"]
