@@ -7,6 +7,7 @@ import uuid
 import streamlit as st
 
 import db
+import promo_engine
 from linepay import LinePayClient, LinePayError
 from style import inject_theme, hero, BRAND_NAME
 
@@ -35,12 +36,10 @@ def get_linepay_client() -> LinePayClient | None:
 
 
 def effective_price(p: dict) -> int:
-    if p.get("sale_price"):
-        return int(p["sale_price"])
     return int(p["price"])
 
 
-def show_catalog(products: list[dict]):
+def show_catalog(products: list[dict], promo_map: dict[int, list[dict]]):
     hero("蜂蜜嚴選", "一年一收．自家蜂場現採現裝．純淨不加糖")
 
     if not products:
@@ -58,17 +57,26 @@ def show_catalog(products: list[dict]):
                     st.caption(p["description"])
 
                 price = effective_price(p)
-                if p.get("sale_price") and int(p["sale_price"]) < int(p["price"]):
-                    st.markdown(f"~~{p['price']} {CURRENCY}~~ → **{price} {CURRENCY}**")
-                else:
-                    st.markdown(f"**{price} {CURRENCY}**")
+                st.markdown(f"**{price} {CURRENCY}**")
 
-                if p.get("promo_text"):
-                    st.info(p["promo_text"], icon="🎉")
+                promos = promo_map.get(p["id"], [])
+                for promo in promos:
+                    text = promo.get("display_text") or promo_engine.display_text_for(
+                        promo["rule_type"], promo.get("params") or {}
+                    )
+                    st.caption(f"🎉 {text}")
 
                 qty = st.number_input(
                     "數量", min_value=1, value=1, step=1, key=f"qty_{p['id']}"
                 )
+
+                if promos:
+                    line_total, applied = promo_engine.calc_line_price(
+                        price, int(qty), promos
+                    )
+                    if applied:
+                        st.caption(f"→ 小計 **{line_total} {CURRENCY}**（已套用優惠）")
+
                 if st.button("加入購物車", key=f"add_{p['id']}", use_container_width=True):
                     st.session_state.cart[p["id"]] = (
                         st.session_state.cart.get(p["id"], 0) + int(qty)
@@ -76,10 +84,10 @@ def show_catalog(products: list[dict]):
                     st.toast(f"已加入 {p['name']} x{int(qty)}")
                     st.rerun()
 
-    show_cart_sidebar(products)
+    show_cart_sidebar(products, promo_map)
 
 
-def show_cart_sidebar(products: list[dict]):
+def show_cart_sidebar(products: list[dict], promo_map: dict[int, list[dict]]):
     product_map = {p["id"]: p for p in products}
     with st.sidebar:
         st.header("🛒 購物車")
@@ -93,12 +101,17 @@ def show_cart_sidebar(products: list[dict]):
             if not p:
                 continue
             price = effective_price(p)
-            subtotal = price * qty
+            promos = promo_map.get(pid, [])
+            subtotal, applied = promo_engine.calc_line_price(price, qty, promos)
             total += subtotal
             col1, col2 = st.columns([3, 1])
             with col1:
                 st.write(f"{p['name']} x{qty}")
-                st.caption(f"{subtotal} {CURRENCY}")
+                if applied:
+                    original = price * qty
+                    st.caption(f"~~{original}~~ → {subtotal} {CURRENCY} 🎉")
+                else:
+                    st.caption(f"{subtotal} {CURRENCY}")
             with col2:
                 if st.button("移除", key=f"remove_{pid}"):
                     del st.session_state.cart[pid]
@@ -112,8 +125,8 @@ def show_cart_sidebar(products: list[dict]):
             st.rerun()
 
 
-def show_checkout(products: list[dict]):
-    hero("結帳", "確認訂購內容，8博士會盡快為您裝罐出貨")
+def show_checkout(products: list[dict], promo_map: dict[int, list[dict]]):
+    hero("結帳", "確認訂購內容，蜂農會盡快為您裝罐出貨")
     product_map = {p["id"]: p for p in products}
 
     if not st.session_state.cart:
@@ -134,10 +147,24 @@ def show_checkout(products: list[dict]):
         if not p:
             continue
         price = effective_price(p)
-        subtotal = price * qty
-        total += subtotal
-        items.append({"product_id": pid, "name": p["name"], "qty": qty, "price": price})
-        st.write(f"{p['name']} x{qty}　→　{subtotal} {CURRENCY}")
+        promos = promo_map.get(pid, [])
+        line_total, applied = promo_engine.calc_line_price(price, qty, promos)
+        total += line_total
+        items.append(
+            {
+                "product_id": pid,
+                "name": p["name"],
+                "qty": qty,
+                "unit_price": price,
+                "line_total": line_total,
+                "promo_name": applied["name"] if applied else None,
+            }
+        )
+        if applied:
+            original = price * qty
+            st.write(f"{p['name']} x{qty}　→　~~{original}~~ **{line_total} {CURRENCY}** 🎉 {applied['name']}")
+        else:
+            st.write(f"{p['name']} x{qty}　→　{line_total} {CURRENCY}")
 
     st.write(f"### 總計：{total} {CURRENCY}")
     st.divider()
@@ -278,14 +305,15 @@ def main():
     with st.spinner("載入商品中..."):
         try:
             products = db.get_active_products()
+            promo_map = db.get_active_product_promotion_map()
         except Exception as e:
             st.error(f"讀取商品失敗，請稍後再試。\n\n錯誤訊息：{e}")
             return
 
     if st.session_state.show_checkout:
-        show_checkout(products)
+        show_checkout(products, promo_map)
     else:
-        show_catalog(products)
+        show_catalog(products, promo_map)
 
 
 if __name__ == "__main__":
