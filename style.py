@@ -8,7 +8,7 @@
 """
 import streamlit as st
 
-BRAND_NAME = "蜜山蜂場"
+BRAND_NAME = "8博士農場"
 BRAND_TAGLINE = "自家蜂場．小批現採．蜂農直送"
 
 
