@@ -17,7 +17,10 @@ PRODUCTS_TABLE = "products"
 SHOP_ORDERS_TABLE = "shop_orders"
 PROMOTIONS_TABLE = "promotions"
 PRODUCT_PROMOTIONS_TABLE = "product_promotions"
+GALLERY_TABLE = "gallery_photos"
+SITE_CONTENT_TABLE = "site_content"
 STORAGE_BUCKET = "product-images"
+GALLERY_BUCKET = "gallery-images"
 
 
 def _headers() -> dict:
@@ -698,3 +701,110 @@ def get_all_product_promotion_map() -> dict[int, list[int]]:
     for row in resp.json():
         mapping.setdefault(row["product_id"], []).append(row["promotion_id"])
     return mapping
+
+
+# ---------------------------------------------------------------------------
+# 活動花絮照片 gallery_photos
+# ---------------------------------------------------------------------------
+
+
+def upload_gallery_image(file_bytes: bytes, filename: str, content_type: str) -> str:
+    """上傳花絮照片到 Supabase Storage 的 gallery-images bucket，回傳公開網址。"""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
+    path = f"{uuid.uuid4().hex}.{ext}"
+    base = st.secrets["supabase"]["url"].rstrip("/")
+    key = st.secrets["supabase"]["service_role_key"]
+    upload_url = f"{base}/storage/v1/object/{GALLERY_BUCKET}/{path}"
+    headers = {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": content_type or "application/octet-stream",
+    }
+    resp = requests.post(upload_url, headers=headers, data=file_bytes, timeout=30)
+    if resp.status_code >= 300:
+        raise RuntimeError(f"Supabase 圖片上傳失敗（{resp.status_code}）：{resp.text}")
+    return f"{base}/storage/v1/object/public/{GALLERY_BUCKET}/{path}"
+
+
+def create_gallery_photo(image_url: str, caption: str) -> None:
+    payload = {"image_url": image_url, "caption": caption, "is_active": True}
+    resp = requests.post(
+        _table_url(GALLERY_TABLE),
+        headers=_headers(),
+        data=_json_dumps(payload),
+        timeout=20,
+    )
+    _raise_if_error(resp, "新增花絮照片")
+
+
+def set_gallery_photo_active(photo_id: int, is_active: bool) -> None:
+    resp = requests.patch(
+        _table_url(GALLERY_TABLE),
+        headers=_headers(),
+        params={"id": f"eq.{photo_id}"},
+        data=_json_dumps({"is_active": is_active}),
+        timeout=20,
+    )
+    _raise_if_error(resp, "更新花絮照片狀態")
+
+
+def delete_gallery_photo(photo_id: int) -> None:
+    resp = requests.delete(
+        _table_url(GALLERY_TABLE),
+        headers=_headers(),
+        params={"id": f"eq.{photo_id}"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "刪除花絮照片")
+
+
+def get_active_gallery_photos() -> list[dict]:
+    """給顧客的品牌故事頁面使用。"""
+    resp = requests.get(
+        _table_url(GALLERY_TABLE),
+        headers=_headers(),
+        params={"select": "*", "is_active": "eq.true", "order": "create_date.desc"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "查詢花絮照片")
+    return resp.json()
+
+
+def get_all_gallery_photos() -> list[dict]:
+    """給後台管理頁面使用。"""
+    resp = requests.get(
+        _table_url(GALLERY_TABLE),
+        headers=_headers(),
+        params={"select": "*", "order": "create_date.desc"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "查詢花絮照片列表")
+    return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# 品牌理念文案 site_content（單一列設定）
+# ---------------------------------------------------------------------------
+
+
+def get_site_content() -> dict:
+    resp = requests.get(
+        _table_url(SITE_CONTENT_TABLE),
+        headers=_headers(),
+        params={"id": "eq.1", "select": "*"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "查詢網站文案")
+    data = resp.json()
+    return data[0] if data else {}
+
+
+def update_site_content(fields: dict) -> None:
+    resp = requests.patch(
+        _table_url(SITE_CONTENT_TABLE),
+        headers=_headers(),
+        params={"id": "eq.1"},
+        data=_json_dumps(fields),
+        timeout=20,
+    )
+    _raise_if_error(resp, "更新網站文案")
