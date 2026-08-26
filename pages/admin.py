@@ -562,6 +562,147 @@ def show_promotions_tab():
 
 
 # ---------------------------------------------------------------------------
+# 品牌故事頁籤
+# ---------------------------------------------------------------------------
+
+
+def show_philosophy_editor():
+    st.subheader("✏️ 品牌理念文案")
+    try:
+        content = db.get_site_content()
+    except Exception as e:
+        st.error(f"讀取文案失敗：{e}")
+        content = {}
+
+    with st.form("philosophy_form"):
+        title = st.text_input("標題", value=content.get("philosophy_title") or "")
+        body = st.text_area(
+            "理念內文", value=content.get("philosophy_body") or "", height=150
+        )
+        st.caption("三個亮點數字（例如年資、辦過幾場活動），留空就不會顯示在頁面上")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            n1 = st.text_input("數字 1", value=content.get("stat1_number") or "")
+            l1 = st.text_input("說明 1", value=content.get("stat1_label") or "")
+        with c2:
+            n2 = st.text_input("數字 2", value=content.get("stat2_number") or "")
+            l2 = st.text_input("說明 2", value=content.get("stat2_label") or "")
+        with c3:
+            n3 = st.text_input("數字 3", value=content.get("stat3_number") or "")
+            l3 = st.text_input("說明 3", value=content.get("stat3_label") or "")
+        submitted = st.form_submit_button("儲存文案", use_container_width=True)
+
+    if not submitted:
+        return
+
+    try:
+        db.update_site_content(
+            {
+                "philosophy_title": title.strip(),
+                "philosophy_body": body.strip(),
+                "stat1_number": n1.strip(),
+                "stat1_label": l1.strip(),
+                "stat2_number": n2.strip(),
+                "stat2_label": l2.strip(),
+                "stat3_number": n3.strip(),
+                "stat3_label": l3.strip(),
+            }
+        )
+    except Exception as e:
+        st.error(f"儲存失敗：{e}")
+        return
+
+    st.success("已儲存！")
+    st.rerun()
+
+
+def show_gallery_form():
+    st.subheader("➕ 新增花絮照片")
+    with st.form("new_gallery_form", clear_on_submit=True):
+        caption = st.text_input("照片說明（例如：2024 秋季採蜜體驗）")
+        uploaded_file = st.file_uploader(
+            "照片", type=["png", "jpg", "jpeg", "webp"]
+        )
+        submitted = st.form_submit_button("上傳照片", use_container_width=True)
+
+    if not submitted:
+        return
+
+    if uploaded_file is None:
+        st.error("請選擇一張照片。")
+        return
+
+    with st.spinner("上傳照片中..."):
+        try:
+            image_url = db.upload_gallery_image(
+                file_bytes=uploaded_file.getvalue(),
+                filename=uploaded_file.name,
+                content_type=uploaded_file.type or "image/jpeg",
+            )
+            db.create_gallery_photo(image_url=image_url, caption=caption.strip())
+        except Exception as e:
+            st.error(f"上傳失敗：{e}")
+            return
+
+    st.success("照片已新增！")
+    st.rerun()
+
+
+def show_gallery_list():
+    st.subheader("🖼️ 花絮照片列表")
+    try:
+        photos = db.get_all_gallery_photos()
+    except Exception as e:
+        st.error(f"讀取花絮照片失敗：{e}")
+        return
+
+    if not photos:
+        st.info("目前還沒有任何花絮照片，請先在上方新增。")
+        return
+
+    cols = st.columns(4)
+    for idx, photo in enumerate(photos):
+        with cols[idx % 4]:
+            with st.container(border=True):
+                st.image(photo["image_url"], use_container_width=True)
+                if photo.get("caption"):
+                    st.caption(photo["caption"])
+                status_tag = "🟢 顯示中" if photo.get("is_active") else "🔴 已隱藏"
+                st.caption(status_tag)
+                if photo.get("is_active"):
+                    if st.button(
+                        "隱藏",
+                        key=f"hide_gallery_{photo['id']}",
+                        use_container_width=True,
+                    ):
+                        db.set_gallery_photo_active(photo["id"], False)
+                        st.rerun()
+                else:
+                    if st.button(
+                        "顯示",
+                        key=f"show_gallery_{photo['id']}",
+                        use_container_width=True,
+                    ):
+                        db.set_gallery_photo_active(photo["id"], True)
+                        st.rerun()
+                if st.button(
+                    "🗑️ 刪除",
+                    key=f"delete_gallery_{photo['id']}",
+                    use_container_width=True,
+                ):
+                    db.delete_gallery_photo(photo["id"])
+                    st.rerun()
+
+
+def show_story_tab():
+    show_philosophy_editor()
+    st.divider()
+    show_gallery_form()
+    st.divider()
+    show_gallery_list()
+
+
+# ---------------------------------------------------------------------------
 # 商城訂單頁籤
 # ---------------------------------------------------------------------------
 
@@ -632,8 +773,8 @@ def show_shop_orders_tab():
 def show_dashboard():
     st.title(f"🐝 {BRAND_NAME}後台")
 
-    tab_registrations, tab_events, tab_shop_orders, tab_products, tab_promotions = st.tabs(
-        ["活動報名名單", "活動管理", "商城訂單", "商品管理", "促銷管理"]
+    tab_registrations, tab_events, tab_shop_orders, tab_products, tab_promotions, tab_story = st.tabs(
+        ["活動報名名單", "活動管理", "商城訂單", "商品管理", "促銷管理", "品牌故事"]
     )
     with tab_registrations:
         show_registrations_tab()
@@ -645,6 +786,8 @@ def show_dashboard():
         show_products_tab()
     with tab_promotions:
         show_promotions_tab()
+    with tab_story:
+        show_story_tab()
 
     st.divider()
     if st.button("登出"):
