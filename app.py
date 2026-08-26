@@ -99,3 +99,6 @@ def registration_form():
 
 if __name__ == "__main__":
     registration_form()
+    st.divider()
+    st.page_link("pages/story.py", label="🐝 認識我們的蜂場故事與活動花絮", icon="🍯")
+    st.page_link("pages/shop.py", label="🍯 逛逛蜂蜜嚴選商城", icon="🛍️")
