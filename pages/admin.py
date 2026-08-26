@@ -302,6 +302,15 @@ def show_product_list():
         st.info("目前還沒有任何商品，請先在上方新增。")
         return
 
+    try:
+        all_promotions = db.get_all_promotions()
+    except Exception as e:
+        st.error(f"讀取促銷規則失敗：{e}")
+        all_promotions = []
+
+    promo_options = {p["name"]: p["id"] for p in all_promotions}
+    promo_id_to_name = {p["id"]: p["name"] for p in all_promotions}
+
     for p in products:
         with st.container(border=True):
             col_img, col_info, col_action = st.columns([1, 3, 1])
@@ -335,6 +344,36 @@ def show_product_list():
                     db.delete_product(p["id"])
                     st.rerun()
 
+            if promo_options:
+                st.divider()
+                try:
+                    applied_promo_ids = db.get_product_promotions(p["id"])
+                except Exception as e:
+                    st.error(f"讀取套用規則失敗：{e}")
+                    applied_promo_ids = []
+                applied_promo_names = [
+                    promo_id_to_name.get(pid, f"（規則 #{pid}）")
+                    for pid in applied_promo_ids
+                ]
+
+                new_selection = st.multiselect(
+                    "這個商品要套用哪些促銷規則",
+                    list(promo_options.keys()),
+                    default=applied_promo_names,
+                    key=f"product_promos_{p['id']}",
+                )
+                if st.button("儲存套用規則", key=f"save_product_promos_{p['id']}"):
+                    new_ids = [promo_options[n] for n in new_selection]
+                    try:
+                        db.set_product_promotions(p["id"], new_ids)
+                    except Exception as e:
+                        st.error(f"更新失敗：{e}")
+                    else:
+                        st.success("已更新。")
+                        st.rerun()
+            else:
+                st.caption("目前還沒有促銷規則，可以到下方「促銷管理」頁籤新增。")
+
 
 def show_products_tab():
     show_product_form()
@@ -347,12 +386,8 @@ def show_products_tab():
 # ---------------------------------------------------------------------------
 
 
-def show_promotion_form(products: list[dict]):
+def show_promotion_form():
     st.subheader("➕ 新增促銷規則")
-
-    if not products:
-        st.info("請先到「商品管理」上架商品，才能設定促銷規則。")
-        return
 
     rule_label_to_key = {v: k for k, v in promo_engine.RULE_TYPES.items()}
     rule_label = st.selectbox(
@@ -406,9 +441,6 @@ def show_promotion_form(products: list[dict]):
             "顯示文字（留空則自動產生，例如「買2送1」「85折」）"
         )
 
-        product_options = {p["name"]: p["id"] for p in products}
-        selected_names = st.multiselect("套用到哪些商品 *", list(product_options.keys()))
-
         submitted = st.form_submit_button("新增促銷規則", use_container_width=True)
 
     if not submitted:
@@ -417,25 +449,23 @@ def show_promotion_form(products: list[dict]):
     if not name.strip():
         st.error("請填寫規則名稱。")
         return
-    if not selected_names:
-        st.error("請至少選擇一項要套用的商品。")
-        return
 
     try:
-        promo = db.create_promotion(
+        db.create_promotion(
             name=name.strip(),
             rule_type=rule_type,
             params=params,
             display_text=display_text.strip(),
         )
-        product_ids = [product_options[n] for n in selected_names]
-        db.set_promotion_products(promo["id"], product_ids)
     except Exception as e:
         st.error(f"新增促銷規則失敗：{e}")
         return
 
     preview = promo_engine.display_text_for(rule_type, params, display_text.strip())
-    st.success(f"促銷規則「{name}」已建立！套用效果：{preview}")
+    st.success(
+        f"促銷規則「{name}」已建立！套用效果：{preview}\n\n"
+        "接下來請到「商品管理」頁籤，在要套用的商品上勾選這條規則。"
+    )
     st.rerun()
 
 
@@ -526,7 +556,7 @@ def show_promotions_tab():
     except Exception as e:
         st.error(f"讀取商品列表失敗：{e}")
         return
-    show_promotion_form(products)
+    show_promotion_form()
     st.divider()
     show_promotion_list(products)
 
