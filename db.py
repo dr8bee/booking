@@ -547,6 +547,18 @@ def get_promotion_products(promotion_id: int) -> list[int]:
     return [row["product_id"] for row in resp.json()]
 
 
+def get_product_promotions(product_id: int) -> list[int]:
+    """取得某個商品目前套用了哪些促銷規則（回傳規則 id 列表）。"""
+    resp = requests.get(
+        _table_url(PRODUCT_PROMOTIONS_TABLE),
+        headers=_headers(),
+        params={"product_id": f"eq.{product_id}", "select": "promotion_id"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "查詢商品套用的促銷規則")
+    return [row["promotion_id"] for row in resp.json()]
+
+
 def set_promotion_products(promotion_id: int, product_ids: list[int]) -> None:
     """
     設定某個促銷規則要套用在哪些商品上（整批覆蓋：先清空舊的對應，再寫入新的）。
@@ -574,6 +586,34 @@ def set_promotion_products(promotion_id: int, product_ids: list[int]) -> None:
     _raise_if_error(resp, "更新促銷適用商品")
 
 
+def set_product_promotions(product_id: int, promotion_ids: list[int]) -> None:
+    """
+    設定某個商品套用哪些促銷規則（整批覆蓋：先清空舊的對應，再寫入新的）。
+    給「商品管理」頁籤使用，讓店家從商品的角度去勾選要套用的規則。
+    """
+    resp = requests.delete(
+        _table_url(PRODUCT_PROMOTIONS_TABLE),
+        headers=_headers(),
+        params={"product_id": f"eq.{product_id}"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "更新商品套用的促銷規則")
+
+    if not promotion_ids:
+        return
+
+    payload = [
+        {"promotion_id": pid, "product_id": product_id} for pid in promotion_ids
+    ]
+    resp = requests.post(
+        _table_url(PRODUCT_PROMOTIONS_TABLE),
+        headers=_headers(),
+        data=_json_dumps(payload),
+        timeout=20,
+    )
+    _raise_if_error(resp, "更新商品套用的促銷規則")
+
+
 def get_active_product_promotion_map() -> dict[int, list[dict]]:
     """
     回傳 {商品id: [促銷規則字典, ...]}，只包含目前啟用中的規則。
@@ -598,4 +638,63 @@ def get_active_product_promotion_map() -> dict[int, list[dict]]:
         promo = promo_by_id.get(row["promotion_id"])
         if promo:
             mapping.setdefault(row["product_id"], []).append(promo)
+    return mapping
+
+
+def get_product_promotions(product_id: int) -> list[int]:
+    """取得某個商品目前套用了哪些促銷規則（回傳規則 id 列表）。"""
+    resp = requests.get(
+        _table_url(PRODUCT_PROMOTIONS_TABLE),
+        headers=_headers(),
+        params={"product_id": f"eq.{product_id}", "select": "promotion_id"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "查詢商品套用的促銷規則")
+    return [row["promotion_id"] for row in resp.json()]
+
+
+def set_product_promotions(product_id: int, promotion_ids: list[int]) -> None:
+    """
+    設定某個商品要套用哪些促銷規則（整批覆蓋：先清空舊的對應，再寫入新的）。
+    這是「由商品選規則」方向的寫入，跟 set_promotion_products（由規則選商品）
+    寫入同一張對應表，兩個方向可以互相搭配使用。
+    """
+    resp = requests.delete(
+        _table_url(PRODUCT_PROMOTIONS_TABLE),
+        headers=_headers(),
+        params={"product_id": f"eq.{product_id}"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "更新商品促銷規則")
+
+    if not promotion_ids:
+        return
+
+    payload = [
+        {"promotion_id": pid, "product_id": product_id} for pid in promotion_ids
+    ]
+    resp = requests.post(
+        _table_url(PRODUCT_PROMOTIONS_TABLE),
+        headers=_headers(),
+        data=_json_dumps(payload),
+        timeout=20,
+    )
+    _raise_if_error(resp, "更新商品促銷規則")
+
+
+def get_all_product_promotion_map() -> dict[int, list[int]]:
+    """
+    回傳 {商品id: [促銷規則id, ...]}，不論規則是否啟用。
+    給後台「商品管理」頁面一次讀取所有對應關係使用，避免逐一查詢。
+    """
+    resp = requests.get(
+        _table_url(PRODUCT_PROMOTIONS_TABLE),
+        headers=_headers(),
+        params={"select": "product_id,promotion_id"},
+        timeout=20,
+    )
+    _raise_if_error(resp, "查詢商品促銷規則對應")
+    mapping: dict[int, list[int]] = {}
+    for row in resp.json():
+        mapping.setdefault(row["product_id"], []).append(row["promotion_id"])
     return mapping
