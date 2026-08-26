@@ -8,7 +8,7 @@
 """
 import streamlit as st
 
-BRAND_NAME = "8博士農場"
+BRAND_NAME = "蜜山蜂場"
 BRAND_TAGLINE = "自家蜂場．小批現採．蜂農直送"
 
 
@@ -140,6 +140,45 @@ def inject_theme():
             background-color: rgba(232,163,61,0.16) !important;
             border-left: 4px solid var(--honey-gold-dark) !important;
         }
+
+        /* 活動花絮照片牆：拍立得散落風格，比整齊網格更有熱鬧感 */
+        .gallery-grid {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 1.8rem 1.3rem;
+            padding: 1rem 0 2.5rem;
+        }
+        .gallery-photo-card {
+            background: #FFFDF8;
+            padding: 10px 10px 16px;
+            box-shadow: 0 6px 16px rgba(61,40,23,0.16);
+            border-radius: 4px;
+            width: 230px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .gallery-photo-card:hover {
+            transform: translateY(-4px) rotate(0deg) !important;
+            box-shadow: 0 10px 24px rgba(61,40,23,0.24);
+            z-index: 2;
+        }
+        .gallery-photo-card img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 2px;
+            display: block;
+        }
+        .gallery-caption {
+            margin-top: 10px;
+            font-family: 'Fraunces', 'Noto Sans TC', serif;
+            font-size: 0.92rem;
+            color: var(--hive-brown);
+            text-align: center;
+        }
+        .gallery-rotate-a { transform: rotate(-2.5deg); }
+        .gallery-rotate-b { transform: rotate(2deg); }
+        .gallery-rotate-c { transform: rotate(-1deg); }
         </style>
         """,
         unsafe_allow_html=True,
