@@ -314,6 +314,8 @@ def main():
         show_checkout(products, promo_map)
     else:
         show_catalog(products, promo_map)
+        st.divider()
+        st.page_link("pages/story.py", label="🐝 認識我們的蜂場故事與活動花絮", icon="🍯")
 
 
 if __name__ == "__main__":
